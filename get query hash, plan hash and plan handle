@@ -1,0 +1,87 @@
+ --   SELECT query_hash, execution_count, total_worker_time, total_logical_reads, 
+	--total_logical_writes, 
+	--@@SERVERNAME, DB_NAME()
+ --   FROM sys.dm_exec_query_stats
+    ;
+WITH QueryStats AS (
+    SELECT 
+        qs.query_hash,
+        qs.plan_handle,
+        qs.plan_generation_num,
+        qs.execution_count,
+        qs.total_worker_time,
+        qs.total_elapsed_time,
+        qs.total_logical_reads,
+        qs.total_logical_writes,
+        qs.total_physical_reads,
+        qs.sql_handle,
+        --qs.plan_handle,
+        qt.text AS query_text,
+        OBJECT_NAME(st.objectid, st.dbid) AS proc_name,
+        qs.query_plan_hash,
+        qs.statement_start_offset,
+        qs.statement_end_offset
+    FROM sys.dm_exec_query_stats qs
+    CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS qt
+    CROSS APPLY sys.dm_exec_text_query_plan(qs.plan_handle, qs.statement_start_offset, qs.statement_end_offset) AS st
+)
+, PlanCounts AS (
+    SELECT query_hash, COUNT(DISTINCT query_plan_hash) AS plan_count
+    FROM QueryStats
+    GROUP BY query_hash
+)
+SELECT 
+    qs.query_hash,
+    qs.query_plan_hash,
+    'Plan #' + CAST(ROW_NUMBER() OVER (PARTITION BY qs.query_hash ORDER BY qs.total_worker_time DESC) AS VARCHAR) AS plan_number,
+    qs.execution_count,
+    CAST(qs.total_worker_time * 1.0 / qs.execution_count AS DECIMAL(18,2)) AS avg_worker_time,
+    CAST(qs.total_elapsed_time * 1.0 / qs.execution_count AS DECIMAL(18,2)) AS avg_elapsed_time,
+    qs.total_logical_reads,
+    qs.total_logical_writes,
+    qs.total_physical_reads,
+    qs.query_text,
+    qs.proc_name,
+    @@SERVERNAME AS server_name,
+    DB_NAME() AS database_name,
+    pc.plan_count AS total_plans_for_query_hash
+FROM QueryStats qs
+JOIN PlanCounts pc ON qs.query_hash = pc.query_hash
+where qs.query_text not like '%@_ms%'
+--and qs.proc_name like '%usp_ProductSalesByRegion%'
+and qs.proc_name like 'usp_idtitleavgvoteid'
+ORDER BY qs.query_hash, plan_number;
+ 
+ /*
+
+--1. Remove Cached Plan (Force Recompile) by plan_handle
+--This will remove a specific plan from the cache and cause SQL Server to recompile it the next time it's needed.
+ -- Get the plan_handle from dm_exec_query_stats or from your earlier result
+
+DECLARE @plan_handle varbinary(64) = 0x05001500F01AB84AB0EF71193102000001000000000000000000000000000000000000000000000000000000 -- replace with actual plan_handle
+
+-- Remove it from plan cache
+DBCC FREEPROCCACHE (@plan_handle);
+
+
+/*
+-- To get Details using query and plan hash e.g. get plan_handle
+SELECT 
+    qs.plan_handle,
+    qs.execution_count,
+    qs.total_worker_time,
+    qt.text AS query_text
+FROM sys.dm_exec_query_stats qs
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS qt
+WHERE qs.query_hash = 0xBDDD6DBED030B1D2         -- your query_hash
+  AND qs.query_plan_hash = 0x1CAAB66A38B3335C;   -- your query_plan_hash
+
+
+  select *
+from sys.dm_exec_cached_plans cp
+join sys.dm_os_memory_cache_entries ce on cp.memory_object_address = ce.memory_object_address
+where cp.plan_handle = 0x05001500B7F6C34940FE71193102000001000000000000000000000000000000000000000000000000000000
+
+*/
+
+*/
