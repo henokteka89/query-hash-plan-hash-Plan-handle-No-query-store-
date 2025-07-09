@@ -1,0 +1,58 @@
+SELECT 
+    cp.plan_handle,
+    cp.usecounts,
+    --cp.size_in_bytes,
+    qs.execution_count,
+ 	 CAST(qs.total_elapsed_time / 1000.0 AS DECIMAL(10,2)) AS total_elapsed_seconds,
+    CAST((qs.total_elapsed_time * 1.0 / qs.execution_count) / 1000.0 AS DECIMAL(10,2)) AS avg_elapsed_seconds,
+    CAST(qs.total_worker_time / 1000.0 AS DECIMAL(10,2)) AS total_cpu_seconds,
+    CAST((qs.total_worker_time * 1.0 / qs.execution_count) / 1000.0 AS DECIMAL(10,2)) AS avg_cpu_seconds,
+    qp.query_plan
+FROM 
+    sys.dm_exec_cached_plans AS cp
+JOIN 
+    sys.dm_exec_query_stats AS qs ON cp.plan_handle = qs.plan_handle
+CROSS APPLY 
+    sys.dm_exec_query_plan(cp.plan_handle) AS qp
+CROSS APPLY 
+    sys.dm_exec_sql_text(cp.plan_handle) AS st
+WHERE 
+    st.objectid = OBJECT_ID('dbo.sp_GetPostsByTag')
+ORDER BY 
+    qs.total_elapsed_time DESC;-- or choose based on lowest performance
+ --exec [dbo].[sp_GetPostsByTag] 0
+ --exec [dbo].[sp_GetPostsByUser] 7
+
+
+-- Remove the Specific Bad Plan(s)
+-- Replace with the actual plan_handle from above
+DBCC FREEPROCCACHE (<plan_handle>);
+
+
+
+
+--Get details based don plan_handle
+DECLARE @plan_handle VARBINARY(64) =  -- <-- replace with actual plan handle (e.g.)
+ 0x05000C00293FAC4B80F5CA6D7002000001000000000000000000000000000000000000000000000000000000
+ 
+SELECT 
+    qs.plan_handle,
+    qs.execution_count,
+    CAST(qs.total_elapsed_time / 1000.0 AS DECIMAL(10,2)) AS total_elapsed_seconds,
+    CAST((qs.total_elapsed_time * 1.0 / qs.execution_count) / 1000.0 AS DECIMAL(10,2)) AS avg_elapsed_seconds,
+    CAST(qs.total_worker_time / 1000.0 AS DECIMAL(10,2)) AS total_cpu_seconds,
+    CAST((qs.total_worker_time * 1.0 / qs.execution_count) / 1000.0 AS DECIMAL(10,2)) AS avg_cpu_seconds,
+    qs.total_logical_reads,
+    qs.total_physical_reads,
+    qs.creation_time,
+    qs.last_execution_time,
+    st.text AS query_text,
+    qp.query_plan
+FROM 
+    sys.dm_exec_query_stats AS qs
+CROSS APPLY 
+    sys.dm_exec_sql_text(qs.plan_handle) AS st
+CROSS APPLY 
+    sys.dm_exec_query_plan(qs.plan_handle) AS qp
+WHERE 
+    qs.plan_handle = @plan_handle;
