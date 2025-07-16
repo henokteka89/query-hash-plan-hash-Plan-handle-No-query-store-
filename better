@@ -1,0 +1,48 @@
+DECLARE @ProcName SYSNAME = 'sp_GetPostsByTag';
+
+-- Get the object_id of the procedure
+DECLARE @ObjectID INT = OBJECT_ID(@ProcName);
+
+-- Ensure a temp table for storing relevant plans
+IF OBJECT_ID('tempdb..#Plans') IS NOT NULL DROP TABLE #Plans;
+
+SELECT 
+    qs.plan_handle,
+    qs.execution_count,
+    --CAST(qs.total_worker_time / 1000.0 AS DECIMAL(10,2)) AS total_cpu_ms,
+    --CAST(qs.total_elapsed_time / 1000.0 AS DECIMAL(10,2)) AS total_duration_ms,
+    CAST((qs.total_worker_time * 1.0 / qs.execution_count) / 1000.0 AS DECIMAL(10,2)) AS avg_cpu_ms,
+    CAST((qs.total_elapsed_time * 1.0 / qs.execution_count) / 1000.0 AS DECIMAL(10,2)) AS avg_elapsed_ms,
+    --qs.total_logical_reads,
+    --qs.total_physical_reads,
+	CAST((qs.total_logical_reads * 1.0 / qs.execution_count) AS DECIMAL(10,2)) AS avg_logical_reads,
+    CAST((qs.total_physical_reads * 1.0 / qs.execution_count) AS DECIMAL(10,2)) AS avg_physical_reads,
+
+    qs.creation_time,
+    qs.last_execution_time,
+    st.text AS query_text,
+    qp.query_plan
+INTO #Plans
+FROM sys.dm_exec_query_stats qs
+CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) st
+CROSS APPLY sys.dm_exec_query_plan(qs.plan_handle) qp
+WHERE st.objectid = @ObjectID
+ORDER BY qs.last_execution_time DESC;
+
+-- Show all cached plans for the procedure
+SELECT 
+    plan_handle,
+    execution_count,
+    --total_cpu_ms,
+    --total_duration_ms,
+    avg_cpu_ms,
+    avg_elapsed_ms,
+    --total_logical_reads,
+    --total_physical_reads,
+	avg_logical_reads,
+    avg_physical_reads,
+    creation_time,
+    last_execution_time,
+    query_text,
+    query_plan
+FROM #Plans;
